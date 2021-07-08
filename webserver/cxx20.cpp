@@ -18,8 +18,8 @@ try
     acceptor.open(asio::ip::tcp::v4());
     acceptor.bind(asio::ip::tcp::endpoint(asio::ip::make_address_v4("0.0.0.0"), 8080));
     acceptor.listen();
-    auto [ec, sock] = co_await acceptor.async_accept(asioex::as_tuple(asio::use_awaitable));
-    std::cout << "accepted: " << ec << "\n";
+    auto sock = co_await acceptor.async_accept(asio::use_awaitable);
+    std::cout << "accepted: " << sock.remote_endpoint() << "\n";
 }
 catch(std::exception& e)
 {
@@ -30,17 +30,17 @@ asio::awaitable<void>
 monitor_sigint()
 {
     auto sigs = asio::signal_set(co_await asio::this_coro::executor, SIGINT);
-    int pass = 0;
-    while (pass < 2)
+
+    static const char*msg[] = {
+        "First interrupt. Press ctrl-c again to stop the program.\n",
+        "Really?\n",
+        "You asked for it!\n"
+    };
+
+    for (int pass = 0 ; pass < std::extent_v<decltype(msg)> ; ++pass)
     {
-        static const char*msg[] = {
-            "First interrupt. Press ctrl-c again to stop the program.\n",
-            "You asked for it!\n"
-        };
-        auto [ec, sig] = co_await sigs.async_wait(asioex::as_tuple(asio::use_awaitable));
-        if (ec)
-            break;
-        std::cout << msg[pass++];
+        co_await sigs.async_wait(asio::use_awaitable);
+        std::cout << msg[pass];
     }
 }
 
