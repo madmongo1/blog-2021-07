@@ -1,0 +1,5 @@
+add_executable(webserver-cxx20 cxx20.cpp)
+target_compile_features(webserver-cxx20 PUBLIC cxx_std_20)
+target_link_libraries(webserver-cxx20 PUBLIC Boost::boost)
+target_link_libraries(webserver-cxx20 PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(webserver-cxx20 PUBLIC Threads::Threads)
