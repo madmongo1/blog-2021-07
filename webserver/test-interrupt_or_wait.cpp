@@ -5,6 +5,8 @@
 
 #include <iostream>
 
+using namespace std::literals;
+
 enum wait_disposition_t {
     success,
     cancelled,
@@ -61,8 +63,19 @@ monitor_interrupt(program_stop_source stopper)
     }
 }
 
+auto
+timeout(std::chrono::milliseconds d)
+-> asio::awaitable<void>
+{
+    auto timer = asio::steady_timer(co_await asio::this_coro::executor);
+    timer.expires_after(d);
+    auto [ec] = co_await timer.async_wait(asioex::as_tuple(asio::use_awaitable));
+}
+
 int main()
 {
+    using namespace asioex::awaitable_operators;
+
     auto ioc = asio::io_context();
     auto exec = ioc.get_executor();
 
@@ -71,7 +84,8 @@ int main()
 
     asio::co_spawn(
         exec, 
-        monitor_interrupt(src), 
+        monitor_interrupt(src) ||
+        timeout(5s), 
         asio::detached);
 
     ioc.run();
