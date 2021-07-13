@@ -16,8 +16,8 @@ struct program_stop_state
     signal(int code, std::string_view message);
 
     template<BOOST_ASIO_COMPLETION_TOKEN_FOR(void(error_code)) CompletionHandler>
-    auto async_wait(CompletionHandler&& token)
-    -> BOOST_ASIO_INITFN_RESULT_TYPE(CompletionHandler, void(error_code));
+    BOOST_ASIO_INITFN_AUTO_RESULT_TYPE(CompletionHandler, void(error_code)) 
+    async_wait(CompletionHandler&& token);
 
     int 
     retcode() const;
@@ -33,8 +33,8 @@ private:
 };
 
 template<BOOST_ASIO_COMPLETION_TOKEN_FOR(void(error_code)) CompletionHandler>
-auto program_stop_state::async_wait(CompletionHandler&& token)
--> BOOST_ASIO_INITFN_RESULT_TYPE(CompletionHandler, void(error_code))
+BOOST_ASIO_INITFN_AUTO_RESULT_TYPE(CompletionHandler, void(error_code))
+program_stop_state::async_wait(CompletionHandler&& token)
 {
     return event_(std::forward<CompletionHandler>(token));
 }

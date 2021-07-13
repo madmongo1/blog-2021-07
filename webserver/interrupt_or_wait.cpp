@@ -86,7 +86,15 @@ int main()
         exec, 
         monitor_interrupt(src) ||
         timeout(5s), 
-        asio::detached);
+        [](std::exception_ptr ep, auto which){
+            if (!ep)
+                if (which.index() == 1)
+                    std::cout << "timed out\n";
+                else
+                    std::cout << "interrupted\n";
+            else
+                std::cout << "exception\n";
+        });
 
     ioc.run();
 
