@@ -30,11 +30,13 @@ monitor_interrupt(program_stop_source stopper)
     auto sigs = asio::signal_set(co_await asio::this_coro::executor, SIGINT);
     auto cstate = co_await asio::this_coro::cancellation_state;
 
-    while (!cstate.cancelled())
+    bool done = false;
+    while (!cstate.cancelled() && !done)
     {
-        cstate.slot().assign([&](asio::cancellation_type) {
-            sigs.cancel();
-        });
+        if (auto cslot = cstate.slot() ; cslot.is_connected())
+            cslot.assign([&](asio::cancellation_type) {
+                sigs.cancel();
+            });
 
         auto [ec, sig] = co_await sigs.async_wait(asioex::as_tuple(asio::use_awaitable));
 
@@ -43,17 +45,18 @@ monitor_interrupt(program_stop_source stopper)
             case error:
                 std::cerr << "monitor_interrupt: error - " << ec << "\n";
                 stopper.signal(system_error(ec));
+                done = true;
                 break;
 
             case success:
                 if (sig == SIGINT)
-                    stopper.signal(4, "interrupted");
+                    stopper.signal(4, "interrupted"), done = true;
                 else
                     std::clog << "warning: unexepected signal: " << sig << "\n";
                 break;
 
             case cancelled:
-                co_return;
+                done = true;
         }
     }
 }
@@ -74,6 +77,8 @@ int main()
     ioc.run();
 
 
+    if (sink.retcode())
+        std::cerr << "interrupt_or_wait: " << sink.message() << "\n";
     return sink.retcode();
 }
 
