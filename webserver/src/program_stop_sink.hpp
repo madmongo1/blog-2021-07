@@ -7,11 +7,8 @@ struct program_stop_sink
     program_stop_sink(program_stop_source const& source);
 
     template<BOOST_ASIO_COMPLETION_TOKEN_FOR(void(error_code)) CompletionHandler>
-    auto operator()(CompletionHandler&& token) 
-    -> BOOST_ASIO_INITFN_RESULT_TYPE(CompletionHandler, void(error_code))
-    {
-        return state_->async_wait(std::forward<CompletionHandler>(token));
-    }
+    BOOST_ASIO_INITFN_AUTO_RESULT_TYPE(CompletionHandler, void(error_code))
+    operator()(CompletionHandler&& token);
 
     int 
     retcode() const;
@@ -22,3 +19,10 @@ struct program_stop_sink
 private:
     std::shared_ptr<detail::program_stop_state> state_;
 };
+
+template<BOOST_ASIO_COMPLETION_TOKEN_FOR(void(error_code)) CompletionHandler>
+BOOST_ASIO_INITFN_AUTO_RESULT_TYPE(CompletionHandler, void(error_code))
+program_stop_sink::operator()(CompletionHandler&& token) 
+{
+    return state_->async_wait(std::forward<CompletionHandler>(token));
+}

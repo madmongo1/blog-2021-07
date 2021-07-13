@@ -72,6 +72,31 @@ timeout(std::chrono::milliseconds d)
     auto [ec] = co_await timer.async_wait(asioex::as_tuple(asio::use_awaitable));
 }
 
+void 
+report(std::exception_ptr ep, std::variant<std::monostate, std::monostate> which)
+{
+    try
+    {
+        if(ep)
+            std::rethrow_exception(ep);
+
+        switch(which.index())
+        {
+            case 0:
+                std::cout << "interrupted\n";
+                break;
+
+            case 1:
+                std::cout << "timed out\n";
+                break;
+        }
+    }
+    catch(std::exception& e)
+    {
+        std::cout << "exception: " << e.what() << "\n";
+    }
+}
+
 int main()
 {
     using namespace asioex::awaitable_operators;
@@ -86,16 +111,7 @@ int main()
         exec, 
         monitor_interrupt(src) ||
         timeout(5s), 
-        [](std::exception_ptr ep, auto which){
-            if (!ep)
-                if (which.index() == 1)
-                    std::cout << "timed out\n";
-                else
-                    std::cout << "interrupted\n";
-            else
-                std::cout << "exception\n";
-        });
-
+        report);
     ioc.run();
 
 
