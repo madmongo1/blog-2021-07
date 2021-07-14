@@ -1,3 +1,6 @@
+#ifndef WEBSERVER_STOP_LISTENER__HPP
+#define WEBSERVER_STOP_LISTENER__HPP
+
 #include "stop_event.hpp"
 
 struct stop_listener
@@ -22,3 +25,5 @@ struct stop_listener
         return timer_->async_wait(asioex::deferred([](auto) { return asioex::deferred.values(); }))(
             std::forward< CompletionToken >(token));
     }
+
+#endif

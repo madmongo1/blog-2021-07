@@ -1,3 +1,6 @@
+#ifndef WEBSERVER_PROGRAM_STOP_SINK__HPP
+#define WEBSERVER_PROGRAM_STOP_SINK__HPP
+
 #include "detail/program_stop_state.hpp"
 
 struct program_stop_source;
@@ -26,3 +29,5 @@ program_stop_sink::operator()(CompletionHandler&& token)
 {
     return state_->async_wait(std::forward<CompletionHandler>(token));
 }
+
+#endif
