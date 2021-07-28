@@ -11,6 +11,8 @@
 #include <iostream>
 #include <iomanip>
 #include <string_view>
+#include <regex>
+#include <functional>
 
 namespace beast  = boost::beast;
 
@@ -183,6 +185,114 @@ read_header_only(Stream& stream,
             asio::use_awaitable);
 }
 
+asio::awaitable<void>
+delay(std::chrono::milliseconds dur)
+{
+    auto t = asio::steady_timer(co_await asio::this_coro::executor, dur);
+    co_await t.async_wait(asio::use_awaitable);
+}
+
+asio::awaitable<void>
+write_and_close(std::shared_ptr<any_websocket> ws, std::string s)
+{
+    co_await ws->write(s);
+    co_await delay(5s);
+    co_await ws->close();
+}
+
+asio::awaitable<void>
+default_websock_app(std::shared_ptr<any_websocket> ws, beast::http::request<beast::http::string_body>& request)
+try
+{
+    std::ostringstream resp;
+    resp << "Thank you for request, but target " << request.target() << " leads nowhere\n";
+
+    asio::co_spawn(co_await asio::this_coro::executor, 
+        write_and_close(ws, resp.str()), 
+        asio::detached);
+
+    for(;;)
+    {
+        auto frame = co_await ws->read();
+
+        // handle read payload here
+        // remember that frame is a reference
+    }
+}
+catch(std::exception& e)
+{
+    auto& s = ws->socket();
+    auto ec = error_code();
+    auto ep = s.remote_endpoint(ec);
+    if (ec)
+        std::cout << object_id(__func__, ec) << "read error: " << e.what() << '\n';
+    else
+        std::cout << object_id(__func__, ep) << "read error: " << e.what() << '\n';
+throw;    
+}
+
+
+using var_stream_ptr = 
+    boost::variant2::variant <
+        asio::ip::tcp::socket*, 
+        asio::ssl::stream<asio::ip::tcp::socket>*
+    >;
+
+
+asio::awaitable<void>
+handle_default_request(
+    beast::http::request_parser<beast::http::string_body>& parser, 
+    var_stream_ptr stream, 
+    beast::flat_buffer& rxbuffer)
+{
+    bool error = false;
+    auto& req = parser.get();
+    auto olen = req.payload_size();
+    if (!olen || *olen > 1'000'000)
+        error = true;
+
+    if (!error && !parser.is_done())
+    {
+        // complete reading the rest of the message
+        co_await visit([&rxbuffer, &parser](auto* pstream) 
+        {
+            return beast::http::async_read_some(
+                *pstream, 
+                rxbuffer, 
+                parser, 
+                asio::use_awaitable);
+        }, stream);
+    }
+
+    auto narrate = [](boost::optional<std::size_t> const& o) -> std::string
+    {
+        if (o)
+            return std::to_string(*o);
+        else
+            return "unspecified number of";
+    };
+
+    beast::http::response<beast::http::string_body> resp;
+    resp.result(beast::http::status::not_found);
+    resp.set("Content-Type", "text/plain");
+    std::ostringstream ss;
+    ss << "Thank you for your " << req.method_string() << " request containing " << narrate(olen) << " bytes\n"
+    << req.target() << " was not found on this server. Please try again.\n";
+    resp.body() = ss.str();
+    resp.prepare_payload();
+
+    co_await visit([&resp](auto* pstream) {
+        return beast::http::async_write(
+            *pstream, 
+            resp, 
+            asio::use_awaitable);
+    }, stream);
+
+
+    if(error)
+        throw std::invalid_argument("request too big");
+}
+
 template<class Stream>
 asio::awaitable<void>
 chat_http(Stream& stream, beast::flat_buffer& rx_buffer)
@@ -192,30 +302,51 @@ chat_http(Stream& stream, beast::flat_buffer& rx_buffer)
     auto ident = beast::get_lowest_layer(stream).remote_endpoint();
     auto me = object_id(__func__, ident);
 
-    auto parser = beast::http::request_parser<beast::http::string_body>();
-    auto request = beast::http::request<beast::http::string_body>();
 
     auto timer = asio::steady_timer(co_await asio::this_coro::executor);
 
-    auto which = co_await (
-        read_header_only(stream, rx_buffer, parser) ||
-        timeout(timer, 30s)
-    );
-
-    auto& header = parser.get();
-    std::cout << me << "header received:\n" << header;
-
-    if (beast::websocket::is_upgrade(request))
+    auto again = true;
+    while(again)
     {
-        // upgrade to websocket
-        auto websock = any_websocket(std::move(stream), rx_buffer);
+        auto parser = beast::http::request_parser<beast::http::string_body>();
 
-    }
-    else
-    {
-        // handle http request
-    }
+        auto which = co_await (
+            read_header_only(stream, rx_buffer, parser) ||
+            timeout(timer, 30s)
+        );
 
+        // break on timeout
+        if(which.index() == 1)
+            break;
+
+        auto& request = parser.get();
+        std::cout << me << "header received:\n" << request;
+
+        again = !request.need_eof();
+
+        if (beast::websocket::is_upgrade(request))
+        {
+            // upgrade to websocket
+            auto websock = std::make_shared<any_websocket>(std::move(stream), std::move(rx_buffer));
+            co_await websock->accept(request);
+
+            using generator_sig = asio::awaitable<void>(std::shared_ptr<any_websocket>, beast::http::request<beast::http::string_body>&);
+            using generator_type = std::function<generator_sig>;
+            using element_type = std::tuple<std::regex, generator_type>;
+            static const std::vector<element_type> generators;
+
+            auto const target = request.target();
+            for (auto&& [re, gen] : generators)
+                if (std::regex_match(target.begin(), target.end(), re))
+                    co_return co_await gen(websock, request);
+            co_return co_await default_websock_app(websock, request);
+        }
+        else
+        {
+            // handle http request
+            co_await handle_default_request(parser, var_stream_ptr(&stream), rx_buffer);
+        }
+    }
 
 }
 

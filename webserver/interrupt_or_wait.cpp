@@ -3,7 +3,7 @@
 #include "program_stop_source.hpp"
 #include "program_stop_sink.hpp"
 #include "signal.hpp"
-
+#include "interrupt.hpp"
 #include <iostream>
 
 using namespace std::literals;
@@ -32,25 +32,6 @@ report(std::exception_ptr ep, std::variant<std::monostate, std::monostate> which
     {
         std::cout << "exception: " << e.what() << "\n";
     }
-}
-
-auto 
-monitor_interrupt(program_stop_source stopper)
--> asio::awaitable<void>
-try
-{
-    // wait for a signal to occur, or for the signal wait to be cancelled
-    // by our implicit cancellation
-    auto sig = co_await wait_signal(SIGINT);
-
-    // if the coroutine didn't throw, then it completed having detected the sigint
-    stopper.signal(sig, "interrupted");
-}
-catch(system_error& e)
-{
-    if (e.code() != asio::error::operation_aborted)
-        std::cerr << __func__ << " : " << e.what() << '\n';
-    throw;
 }
 
 auto
