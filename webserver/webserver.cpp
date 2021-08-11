@@ -200,6 +200,7 @@ write_and_close(std::shared_ptr<any_websocket> ws, std::string s)
     co_await ws->close();
 }
 
+
 asio::awaitable<void>
 default_websock_app(std::shared_ptr<any_websocket> ws, beast::http::request<beast::http::string_body>& request)
 try
@@ -238,6 +239,82 @@ using var_stream_ptr =
         asio::ssl::stream<asio::ip::tcp::socket>*
     >;
 
+using http_handler_sig = 
+    asio::awaitable<void>
+        (beast::http::request_parser<beast::http::string_body>& parser, 
+         var_stream_ptr stream, 
+         beast::flat_buffer& rxbuffer);
+
+using http_handler_element = 
+    std::tuple < 
+        std::regex, 
+        std::function<http_handler_sig> 
+    >;
+
+asio::awaitable<void>
+send_file_error(var_stream_ptr stream, 
+    beast::flat_buffer& rxbuffer,
+    std::string message)
+{
+    auto resp = beast::http::response<beast::http::string_body>();
+    resp.
+}
+
+asio::awaitable<void>
+handle_http_file(
+    beast::http::request_parser<beast::http::string_body>& parser, 
+    var_stream_ptr stream, 
+    beast::flat_buffer& rxbuffer)
+{
+    auto& request = parser.get();
+    try
+    {
+        auto target = request.target();
+        std::smatch match;
+        static const auto re = std::regex("/*file(/[^?]*)(.*)");
+        auto matches = std::regex_match(match, std::begin(target), std::end(target), re);
+        if (!matches)
+            throw std::invalid_argument("invalid file format");
+
+        auto& path = match[1];
+
+        static const std::string_view illegal_sequences[] = {
+            "..",
+            "//"
+        };
+        for(auto illegal_sequence : illegal_sequences)
+        {
+            if(std::search(std::begin(path), std::end(path), std::begin(illegal_sequence), std::end(illegal_sequence)))
+            {
+                std::ostringstream ss;
+                ss << "Illegal use of " << illegal_sequence << " in path name";
+                throw std::invalid_argument(ss.str());
+            }
+        }
+
+        if (request.method() == http::verb::get)
+        {
+
+        } 
+        else
+        {
+            throw std::invalid_argument("Invalid method");
+        }
+    }
+    catch(std::exception& e)
+    {
+        // here we should execute the error response coroutine
+        // but we need special handling because you can't call
+        // a coroutine in an exception handler
+        std::cerr << e.what() << '\n';
+    }
+
+    
+}
+
+http_handler_element http_endpoints[] = {
+    std::make_tuple(std::regex("/file/.*"), handle_http_file),
+}
 
 asio::awaitable<void>
 handle_default_request(
@@ -282,16 +359,19 @@ handle_default_request(
     resp.prepare_payload();
 
     co_await visit([&resp](auto* pstream) {
-        return beast::http::async_write(
-            *pstream, 
-            resp, 
-            asio::use_awaitable);
+        return 
+            beast::http::async_write(
+                *pstream, 
+                resp, 
+                asio::use_awaitable);
     }, stream);
 
 
     if(error)
         throw std::invalid_argument("request too big");
 }
+
+
 
 template<class Stream>
 asio::awaitable<void>
@@ -323,6 +403,7 @@ chat_http(Stream& stream, beast::flat_buffer& rx_buffer)
         std::cout << me << "header received:\n" << request;
 
         again = !request.need_eof();
+        auto const target = request.target();
 
         if (beast::websocket::is_upgrade(request))
         {
@@ -335,7 +416,6 @@ chat_http(Stream& stream, beast::flat_buffer& rx_buffer)
             using element_type = std::tuple<std::regex, generator_type>;
             static const std::vector<element_type> generators;
 
-            auto const target = request.target();
             for (auto&& [re, gen] : generators)
                 if (std::regex_match(target.begin(), target.end(), re))
                     co_return co_await gen(websock, request);
@@ -343,6 +423,14 @@ chat_http(Stream& stream, beast::flat_buffer& rx_buffer)
         }
         else
         {
+            auto handled = false;
+            for(auto&& [handler, gen] : http_endpoints)
+                if (std::regex_match(target.begin(), target.end(), re)) 
+                {
+                    handled = true;
+                    co_return co_await handler(parser, var_stream_ptr(&stream), rx_buffer);
+                    break;
+                }
             // handle http request
             co_await handle_default_request(parser, var_stream_ptr(&stream), rx_buffer);
         }
@@ -388,8 +476,14 @@ chat(asio::ip::tcp::socket sock, asio::ssl::context& sslctx)
             );
 
             if (which.index() == 0)
+            {
                 rx_buffer.consume(std::get<0>(which));
-            co_await chat_http(ssl_stream, rx_buffer);
+                co_await chat_http(ssl_stream, rx_buffer);
+            }
+            else
+            {
+                std::cout << me << "handshake timeout on tls connection\n";
+            }
         }
         else
         {

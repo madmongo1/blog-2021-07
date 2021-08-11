@@ -18,3 +18,8 @@ target_compile_features(interrupt_or_wait PUBLIC cxx_std_20)
 add_executable(wsecho wsecho.cpp)
 target_link_libraries(wsecho PUBLIC webserver-cxx20-src)
 target_compile_features(wsecho PUBLIC cxx_std_20)
+
+## demo
+add_executable(demo demo.cpp)
+target_link_libraries(demo PUBLIC webserver-cxx20-src)
+target_compile_features(demo PUBLIC cxx_std_20)
